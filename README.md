@@ -1,21 +1,21 @@
-# API de Gestion de Libros con FastAPI y SQLite
+# API de Gestión de Libros con FastAPI y SQLite
 
-Este proyecto contiene una API REST didactica para gestionar libros utilizando **FastAPI**, **SQLAlchemy** y **SQLite**. La aplicacion esta organizada por capas para separar la configuracion, el acceso a datos, los modelos, los esquemas, los controladores y las rutas HTTP.
+Este repositorio contiene una API REST didáctica para gestionar libros y autores utilizando **FastAPI**, **SQLAlchemy**, **SQLite** y **Alembic**. El proyecto está organizado por capas para separar la configuración, la conexión a la base de datos, los modelos ORM, los esquemas Pydantic, los controladores y las rutas HTTP.
 
-El objetivo de esta guia es explicar el proyecto tal y como se ha construido, paso a paso. El codigo fuente esta escrito en ingles y esta documentacion en espanol.
+> **Nota:** El código fuente está escrito en inglés y esta guía está redactada en español para explicar el proyecto paso a paso. La API está preparada para ser consumida por Swagger, Postman o un frontend independiente.
 
-## Indice
+## Índice
 
 1. [Arquitectura y estructura](#arquitectura-y-estructura)
 2. [Requisitos previos](#requisitos-previos)
-3. [Instalacion paso a paso](#instalacion-paso-a-paso)
-4. [Construccion del proyecto](#construccion-del-proyecto)
-5. [Arrancar el servidor](#arrancar-el-servidor)
-6. [Probar la API con Swagger](#probar-la-api-con-swagger)
-7. [Endpoints implementados](#endpoints-implementados)
-8. [Ejemplos de peticiones y respuestas](#ejemplos-de-peticiones-y-respuestas)
-9. [Estado actual y siguientes pasos](#estado-actual-y-siguientes-pasos)
-10. [Resolucion de problemas](#resolucion-de-problemas)
+3. [Instalación paso a paso](#instalación-paso-a-paso)
+4. [Migraciones con Alembic](#migraciones-con-alembic)
+5. [Tablas y relación entre modelos](#tablas-y-relación-entre-modelos)
+6. [Arrancar el servidor](#arrancar-el-servidor)
+7. [Pruebas con Swagger UI](#pruebas-con-swagger-ui)
+8. [Endpoints y ejemplos](#endpoints-y-ejemplos)
+9. [Estado actual](#estado-actual)
+10. [Resolución de problemas](#resolución-de-problemas)
 
 ## Arquitectura y estructura
 
@@ -24,62 +24,82 @@ La estructura actual del proyecto es la siguiente:
 ```text
 fastapi-api/
 |
+├── main.py                         # Punto de entrada de FastAPI
+├── alembic.ini                     # Configuración de Alembic
+├── alembic/
+│   ├── env.py                      # Conexión de Alembic con SQLAlchemy
+│   ├── README
+│   ├── script.py.mako              # Plantilla de migraciones
+│   └── versions/                   # Historial de cambios de la base de datos
 ├── config/
 │   ├── __init__.py
-│   └── config_variables.py   # Variables de entorno y configuracion
-├── controller/
-│   ├── __init__.py
-│   └── book_controller.py     # Logica de acceso a datos de libros
+│   └── config_variables.py         # Variables de entorno
 ├── database/
 │   ├── __init__.py
-│   └── database.py            # Motor, sesiones y dependencia de BD
+│   └── database.py                 # Motor, Base y sesiones SQLAlchemy
 ├── model/
 │   ├── __init__.py
-│   └── book_model.py          # Modelo ORM de la tabla book
-├── routes/
-│   ├── __init__.py
-│   └── routes.py               # Endpoints HTTP de libros
+│   ├── author_model.py             # Modelo ORM de authors
+│   └── book_model.py               # Modelo ORM de book
 ├── schema/
 │   ├── __init__.py
-│   └── book_schema.py          # Validacion y serializacion Pydantic
-├── .env                        # Configuracion local
-├── .env.example                # Plantilla de configuracion
-├── db.sqlite3                  # Base de datos SQLite local
-├── main.py                     # Punto de entrada de FastAPI
-├── requirements.txt            # Dependencias del proyecto
-└── README.md                   # Documentacion
+│   ├── author_schema.py             # Esquemas Pydantic de autores
+│   └── book_schema.py              # Esquemas Pydantic de libros
+├── controller/
+│   ├── __init__.py
+│   ├── author_controller.py         # Operaciones de autores
+│   └── book_controller.py           # Operaciones de libros
+├── routes/
+│   ├── __init__.py
+│   ├── author_routes.py             # Rutas /author/
+│   └── routes.py                    # Rutas /book/
+├── .env                            # Configuración local
+├── .env.example                    # Plantilla de configuración
+├── db.sqlite3                      # Base de datos SQLite local
+├── requirements.txt                # Dependencias
+└── README.md                       # Esta documentación
 ```
 
-### Flujo de una peticion
+### Flujo de una petición
 
-1. El cliente envia una peticion HTTP a una ruta definida en `routes/routes.py`.
-2. FastAPI valida el cuerpo y los parametros mediante los esquemas de `schema/book_schema.py`.
-3. La dependencia `get_db()` abre una sesion SQLAlchemy para esa peticion.
-4. La ruta delega la operacion al controlador de `controller/book_controller.py`.
-5. El controlador utiliza el modelo `Book` para consultar o guardar datos en SQLite.
-6. SQLAlchemy devuelve el resultado y Pydantic lo serializa como JSON.
-7. La sesion se cierra al finalizar la peticion.
+1. El cliente envía una petición HTTP a una ruta de `routes/`.
+2. FastAPI valida el cuerpo mediante los esquemas de `schema/`.
+3. `Depends(get_db)` proporciona una sesión SQLAlchemy.
+4. La ruta delega la operación al controlador correspondiente.
+5. El controlador consulta o modifica los modelos ORM de `model/`.
+6. SQLAlchemy guarda o recupera los datos de SQLite.
+7. Pydantic serializa el objeto ORM y FastAPI devuelve la respuesta JSON.
+
+```mermaid
+flowchart TD
+    CLIENTE["Cliente / Swagger / Frontend"] --> RUTA["Rutas HTTP"]
+    RUTA --> VALIDACION{"Validación Pydantic"}
+    VALIDACION -- "Inválida" --> ERROR["422 Unprocessable Entity"]
+    VALIDACION -- "Válida" --> SESION["Sesión SQLAlchemy"]
+    SESION --> CONTROLADOR["Controlador"]
+    CONTROLADOR --> MODELO["Modelo ORM"]
+    MODELO --> SQLITE[("db.sqlite3")]
+    SQLITE --> RESPUESTA["Respuesta JSON"]
+```
 
 ## Requisitos previos
 
-Antes de comenzar, necesitas:
+Antes de comenzar necesitas:
 
 - Python 3.10 o superior.
 - `pip`.
-- Un editor de codigo, por ejemplo VS Code.
+- Un editor de código, como VS Code.
 
-Puedes comprobar las versiones instaladas con:
+Puedes comprobar las versiones con:
 
 ```bash
 python3 --version
 pip --version
 ```
 
-## Instalacion paso a paso
+## Instalación paso a paso
 
 ### Paso 1: Situarse en el proyecto
-
-Desde una terminal, entra en la carpeta que contiene `main.py`:
 
 ```bash
 cd /ruta/hacia/fastapi-api
@@ -87,39 +107,37 @@ cd /ruta/hacia/fastapi-api
 
 ### Paso 2: Crear el entorno virtual
 
-El entorno virtual mantiene aisladas las dependencias de este proyecto:
+En macOS y Linux:
 
 ```bash
-python3 -m venv .venv
+python3 -m venv venv
 ```
 
-En Windows se puede utilizar:
+En Windows:
 
 ```powershell
-python -m venv .venv
+python -m venv venv
 ```
 
 ### Paso 3: Activar el entorno virtual
 
-En macOS o Linux:
+macOS o Linux:
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
-En Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+.\venv\Scripts\Activate.ps1
 ```
 
-En Windows CMD:
+Windows CMD:
 
 ```cmd
-.venv\Scripts\activate.bat
+.\venv\Scripts\activate.bat
 ```
-
-Cuando se activa correctamente, suele aparecer `(.venv)` al comienzo de la linea de la terminal.
 
 ### Paso 4: Instalar las dependencias
 
@@ -131,17 +149,16 @@ pip install -r requirements.txt
 
 Las dependencias principales son:
 
-- `fastapi`: framework para construir la API REST.
-- `uvicorn`: servidor ASGI que ejecuta FastAPI.
-- `sqlalchemy`: ORM para trabajar con SQLite mediante modelos Python.
-- `pydantic`: validacion de los datos de entrada y salida.
-- `python-dotenv`: lectura de variables desde `.env`.
-
-SQLite no se instala con `pip`: forma parte de la libreria estandar de Python y la base de datos se almacena en el archivo local `db.sqlite3`.
+- `fastapi`: framework para construir la API.
+- `uvicorn`: servidor ASGI.
+- `sqlalchemy`: ORM para trabajar con SQLite.
+- `alembic`: migraciones de la base de datos.
+- `pydantic`: validación y serialización de datos.
+- `python-dotenv`: lectura del archivo `.env`.
 
 ### Paso 5: Configurar las variables de entorno
 
-El archivo `.env` actual contiene:
+El archivo `.env` utiliza esta configuración:
 
 ```env
 APP_TITLE="Library"
@@ -151,276 +168,286 @@ DATABASE_NAME="db.sqlite3"
 DATABASE_URL="sqlite:///./db.sqlite3"
 ```
 
-El archivo `.env.example` existe como plantilla, aunque actualmente esta vacio. Si se parte de un clonado nuevo y el archivo `.env` no existe, se puede crear con:
+Si el archivo `.env` no existe, puedes copiar la plantilla:
 
 ```bash
 cp .env.example .env
 ```
 
-Despues hay que anadir las variables anteriores al archivo `.env`, o dejar que `config/config_variables.py` utilice sus valores por defecto. Si una variable no existe, la aplicacion utiliza ese valor alternativo.
+`config/config_variables.py` aplica valores por defecto cuando una variable no está definida.
 
-## Construccion del proyecto
+## Migraciones con Alembic
 
-La aplicacion se construyo siguiendo el orden de sus dependencias: primero la configuracion, despues la base de datos, el modelo, los esquemas, el controlador, las rutas y finalmente el punto de entrada.
+### ¿Por qué usamos Alembic?
 
-### Paso 1: Configuracion (`config/config_variables.py`)
+`Base.metadata.create_all()` solo crea una tabla cuando todavía no existe. No modifica una tabla existente si añadimos una columna, cambiamos una restricción o incorporamos una relación.
 
-Este modulo carga el archivo `.env` y centraliza los valores que necesita la aplicacion:
+Por ejemplo, cuando el modelo `Book` pasó de tener un autor como texto a utilizar `author_id`, `create_all()` no podía actualizar la tabla antigua. Alembic permite describir ese cambio en una migración y aplicarlo sin borrar los datos.
 
-```python
-import os
-from dotenv import load_dotenv
+Alembic registra la revisión aplicada en la tabla `alembic_version`.
 
-load_dotenv()
+### Configuración de Alembic en este proyecto
 
-APP_TITLE: str = os.getenv("APP_TITLE", "Library")
-APP_VERSION: str = os.getenv("APP_VERSION", "0.0.1")
-APP_DESCRIPTION: str = os.getenv(
-    "APP_DESCRIPTION",
-    "app de una librería"
-)
+El archivo `alembic/env.py` realiza estas tareas:
 
-DATABASE_NAME: str = os.getenv("DATABASE_NAME", "db.sqlite3")
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./db.sqlite3")
+1. Añade la raíz del proyecto a `sys.path`.
+2. Carga `DATABASE_URL` desde `.env`.
+3. Importa `model` para que `Base.metadata` conozca `Book` y `Author`.
+4. Configura las migraciones en modo offline u online.
+5. Ejecuta `context.run_migrations()`.
+
+La URL actual es:
+
+```env
+DATABASE_URL="sqlite:///./db.sqlite3"
 ```
 
-`load_dotenv()` busca las variables definidas en `.env`. `os.getenv()` permite usar un valor alternativo cuando una variable no esta definida.
+### Historial de migraciones
 
-### Paso 2: Conexion y sesiones (`database/database.py`)
+Las revisiones del proyecto forman esta evolución:
 
-SQLAlchemy necesita un motor y una fabrica de sesiones para comunicarse con SQLite:
+1. `6d27021d7129`: crea la tabla `book` con título, páginas y disponibilidad.
+2. `0a83a52985a0`: crea `authors` y añade `author_id` a `book`.
+3. `c2a4ca782d46`: continúa la evolución de autores y libros.
+4. `a8ff7600e682`: corrige la relación entre ambas tablas.
+5. `9ba96e651b3f`: revisión de corrección del modelo de libros.
+6. `cf0f74d0ff4e`: revisión de corrección de los modelos.
+7. `d4f2c8a9b1e0`: permite que `book.pages` sea `NULL`.
 
-```python
-from typing import Generator
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from config.config_variables import DATABASE_URL
+La revisión actual es `d4f2c8a9b1e0`.
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
+La última migración utiliza `batch_alter_table`, porque SQLite tiene limitaciones para modificar columnas mediante `ALTER TABLE` convencional.
 
-SessionLocal = sessionmaker(
-    autoflush=False,
-    autocommit=False,
-    bind=engine
-)
+### Aplicar las migraciones
 
-Base = declarative_base()
+Desde la raíz del proyecto y con el entorno virtual activado:
+
+```bash
+alembic upgrade head
 ```
 
-La opcion `check_same_thread=False` permite utilizar SQLite en el contexto de peticiones gestionadas por FastAPI. `SessionLocal` crea sesiones sin confirmar automaticamente las transacciones, por lo que el controlador decide cuando hacer `commit()`.
+Para consultar el estado:
 
-La dependencia `get_db()` entrega una sesion a cada ruta y la cierra siempre:
-
-```python
-def get_db() -> Generator[Session, None, None]:
-    db: Session = SessionLocal()
-
-    try:
-        yield db
-    finally:
-        db.close()
+```bash
+alembic current
+alembic heads
+alembic history --verbose
 ```
 
-El bloque `finally` evita dejar sesiones abiertas despues de una peticion.
+La salida esperada de `alembic current` termina en:
 
-### Paso 3: Modelo ORM (`model/book_model.py`)
+```text
+d4f2c8a9b1e0 (head)
+```
 
-El modelo `Book` representa la tabla `book` de SQLite:
+### Crear una nueva migración
+
+Cuando se modifica un modelo SQLAlchemy:
+
+```bash
+alembic revision --autogenerate -m "describe el cambio"
+```
+
+Antes de aplicarla, revisa siempre el archivo creado en `alembic/versions/`. Después ejecuta:
+
+```bash
+alembic upgrade head
+```
+
+Para deshacer la última revisión:
+
+```bash
+alembic downgrade -1
+```
+
+Para volver al estado inicial:
+
+```bash
+alembic downgrade base
+```
+
+## Tablas y relación entre modelos
+
+Después de aplicar las migraciones, SQLite contiene dos tablas relacionadas:
+
+- `authors`: almacena los autores.
+- `book`: almacena los libros.
+
+La relación es **uno a muchos (1:N)**:
+
+- Un autor puede tener muchos libros.
+- Un libro puede tener cero o un autor.
+- `book.author_id` apunta a `authors.id`.
+- La relación utiliza `ON DELETE SET NULL`: si se elimina el autor, el libro se conserva y su `author_id` queda vacío.
+
+```mermaid
+erDiagram
+    AUTHORS ||--o{ BOOK : escribe
+    AUTHORS {
+        int id PK
+        string name
+        string biography
+    }
+    BOOK {
+        int id PK
+        string title
+        int pages
+        boolean is_available
+        int author_id FK
+    }
+```
+
+### Paso 1: Crear la tabla `book`
+
+La primera migración crea la tabla de libros:
 
 ```python
-from sqlalchemy import Column, Integer, String, Boolean
-from database.database import Base
+op.create_table(
+    "book",
+    sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column("title", sa.String(length=150), nullable=False),
+    sa.Column("pages", sa.Integer(), nullable=False),
+    sa.Column("is_available", sa.Boolean(), nullable=False, default=True),
+    sa.PrimaryKeyConstraint("id")
+)
+```
 
+Más adelante, la migración `d4f2c8a9b1e0` cambia `pages` para que sea opcional. El estado final es equivalente a:
 
+```python
+pages = Column(Integer, nullable=True)
+```
+
+La columna sigue validando en Pydantic que, cuando se envía un número, sea mayor que cero.
+
+### Paso 2: Crear la tabla `authors`
+
+La tabla de autores tiene estos campos:
+
+| Campo | Tipo | Obligatorio | Descripción |
+| --- | --- | --- | --- |
+| `id` | `Integer` | Sí | Clave primaria autoincremental |
+| `name` | `String(100)` | Sí | Nombre del autor |
+| `biography` | `String(500)` | No | Biografía del autor |
+
+Su modelo ORM es:
+
+```python
+class Author(Base):
+    __tablename__ = "authors"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, index=True)
+    biography = Column(String(500), nullable=True)
+
+    books = relationship(
+        "Book",
+        back_populates="author",
+        cascade="all, delete-orphan"
+    )
+```
+
+### Paso 3: Añadir la relación a `Book`
+
+El modelo de libros contiene la clave foránea y la relación ORM:
+
+```python
 class Book(Base):
     __tablename__ = "book"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     title = Column(String(150), nullable=False, index=True)
-    author = Column(String(100), nullable=False, index=True)
-    pages = Column(Integer, nullable=False)
+    pages = Column(Integer, nullable=True)
     is_available = Column(Boolean, default=True, nullable=False)
+
+    author_id = Column(
+        Integer,
+        ForeignKey("authors.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    author = relationship("Author", back_populates="books")
 ```
 
-Los campos son:
+`ForeignKey` crea la relación física en SQLite. `relationship()` permite navegar desde Python mediante `book.author` y `author.books`.
 
-- `id`: identificador entero, clave primaria y autoincremental.
-- `title`: titulo obligatorio de hasta 150 caracteres.
-- `author`: autor obligatorio de hasta 100 caracteres.
-- `pages`: numero de paginas almacenado como entero.
-- `is_available`: indica si el libro esta disponible; por defecto es `True`.
+### Paso 4: Definir los esquemas Pydantic
 
-Los indices de `title`, `author` e `id` ayudan a localizar registros con mayor rapidez.
-
-### Paso 4: Esquemas Pydantic (`schema/book_schema.py`)
-
-Los esquemas definen los datos que entran y salen de la API. Son diferentes del modelo ORM: el modelo describe la tabla y Pydantic describe el JSON.
-
-El esquema comun `BookBase` valida los datos basicos:
+Los esquemas separan el JSON de la estructura interna de SQLAlchemy:
 
 ```python
 class BookBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=150)
-    author: str = Field(..., min_length=1, max_length=100)
+    author_id: Optional[int] = None
     pages: Optional[int] = Field(None, gt=0)
     is_available: bool = Field(default=True)
 ```
 
-`BookCreate` hereda esos campos y se utiliza en `POST /book/`. El identificador no se envia porque lo genera SQLite.
+En un libro:
 
-`BookResponse` anade el campo `id` y utiliza:
+- `title` es obligatorio.
+- `author_id` es opcional.
+- `pages` es opcional; si se envía, debe ser mayor que cero.
+- `is_available` es opcional y por defecto vale `true`.
+
+La respuesta incluye el autor anidado cuando existe:
 
 ```python
-model_config = ConfigDict(from_attributes=True)
+class BookResponse(BookBase):
+    id: int
+    author: Optional[AuthorResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
 ```
 
-Esto permite que Pydantic convierta directamente un objeto SQLAlchemy en la respuesta JSON.
-
-El proyecto tambien contiene `BookUpdate` como preparacion para futuras actualizaciones. Actualmente no esta conectado a ninguna ruta y, por tanto, no se puede utilizar desde la API.
-
-### Paso 5: Controlador (`controller/book_controller.py`)
-
-El controlador concentra las operaciones de base de datos para que las rutas no tengan que contener consultas SQLAlchemy directamente.
-
-#### Obtener libros
+Para los autores:
 
 ```python
-def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[Book]:
-    try:
-        return db.query(Book).offset(skip).limit(limit).all()
-    except SQLAlchemyError as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error in creating book {str(error)}"
-        )
+class AuthorBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    biography: Optional[str] = Field(None, max_length=500)
 ```
 
-`skip` permite saltar registros y `limit` limita el numero de resultados.
+### Paso 5: Controladores y rutas
 
-#### Crear libros
-
-```python
-def create_book(db: Session, book_data: BookCreate) -> Book:
-    new_book = Book(
-        title=book_data.title,
-        author=book_data.author,
-        pages=book_data.pages,
-        is_available=book_data.is_available
-    )
-
-    try:
-        db.add(new_book)
-        db.commit()
-        db.refresh(new_book)
-        return new_book
-    except SQLAlchemyError as error:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error in creating book {str(error)}"
-        )
-```
-
-El flujo es:
-
-1. Se construye un objeto `Book` con los datos validados.
-2. `db.add()` lo anade a la sesion.
-3. `db.commit()` guarda la transaccion en SQLite.
-4. `db.refresh()` recupera el `id` generado.
-5. Si ocurre un error, `db.rollback()` revierte la transaccion.
-
-### Paso 6: Rutas (`routes/routes.py`)
-
-El router utiliza el prefijo `/book` y agrupa sus operaciones con la etiqueta `Book` en Swagger:
+Los controladores contienen las operaciones de persistencia. Por ejemplo, crear un libro consiste en construir el objeto, añadirlo a la sesión, confirmar la transacción y refrescarlo:
 
 ```python
-router = APIRouter(
-    prefix="/book",
-    tags=["Book"]
+new_book = Book(
+    title=book_data.title,
+    author_id=book_data.author_id,
+    pages=book_data.pages,
+    is_available=book_data.is_available
 )
+
+db.add(new_book)
+db.commit()
+db.refresh(new_book)
 ```
 
-La ruta de listado valida `skip` y `limit` mediante `Query` y obtiene una sesion mediante `Depends(get_db)`:
+Si ocurre un error SQLAlchemy, el controlador hace `rollback()` y devuelve un error HTTP 500.
+
+Las rutas disponibles usan estos prefijos:
 
 ```python
-@router.get("/", response_model=List[BookResponse])
-def read_books(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
-    return controller.get_all(db=db, skip=skip, limit=limit)
+book_router = APIRouter(prefix="/book", tags=["Book"])
+author_router = APIRouter(prefix="/author", tags=["Author"])
 ```
-
-La ruta de creacion recibe un `BookCreate`, delega en el controlador y devuelve `201 Created`:
-
-```python
-@router.post(
-    "/",
-    response_model=BookResponse,
-    status_code=status.HTTP_201_CREATED
-)
-def create_new_book(
-    book_data: BookCreate,
-    db: Session = Depends(get_db)
-):
-    return controller.create_book(db=db, book_data=book_data)
-```
-
-### Paso 7: Aplicacion principal (`main.py`)
-
-`main.py` ensambla todos los modulos:
-
-```python
-app = FastAPI(
-    title=APP_TITLE,
-    version=APP_VERSION,
-    description=APP_DESCRIPTION,
-    lifespan=lifespan
-)
-```
-
-Antes de aceptar peticiones, el ciclo de vida crea las tablas que todavia no existen:
-
-```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    yield
-```
-
-Por eso la tabla `book` se crea automaticamente al arrancar el servidor.
-
-Tambien se configura CORS para permitir que un frontend independiente pueda consumir la API:
-
-```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-```
-
-Finalmente, `app.include_router(books_router)` registra las rutas de libros y la ruta raiz `GET /` permite comprobar el estado de la aplicacion.
 
 ## Arrancar el servidor
 
-Con el entorno virtual activado, ejecuta:
+Con el entorno virtual activado, aplica primero las migraciones y después arranca FastAPI:
 
 ```bash
+alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Los elementos del comando son:
+También puedes utilizar el ejecutable del entorno virtual directamente:
 
-- `main`: archivo que contiene la aplicacion.
-- `app`: instancia de `FastAPI` dentro de `main.py`.
-- `--reload`: reinicia el servidor cuando se modifica el codigo.
+```bash
+venv/bin/uvicorn main:app --reload
+```
 
 Direcciones disponibles:
 
@@ -428,41 +455,30 @@ Direcciones disponibles:
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - ReDoc: <http://127.0.0.1:8000/redoc>
 
-Al arrancar por primera vez, se crea o actualiza `db.sqlite3` y se registra la tabla `book`.
+`Base.metadata.create_all()` se conserva como apoyo para crear tablas ausentes, pero no reemplaza a Alembic y no modifica columnas existentes.
 
-Para detener el servidor, pulsa `Ctrl+C` en la terminal donde esta ejecutando Uvicorn.
+## Pruebas con Swagger UI
 
-## Probar la API con Swagger
-
-1. Arranca el servidor con `uvicorn main:app --reload`.
+1. Ejecuta `uvicorn main:app --reload`.
 2. Abre <http://127.0.0.1:8000/docs>.
 3. Selecciona un endpoint.
 4. Pulsa **Try it out**.
-5. Completa los parametros o el cuerpo JSON.
+5. Introduce los datos JSON.
 6. Pulsa **Execute**.
 
-Tambien puedes consultar la documentacion alternativa en <http://127.0.0.1:8000/redoc>.
+## Endpoints y ejemplos
 
-## Endpoints implementados
-
-| Metodo | Ruta | Descripcion | Respuesta principal |
+| Método | Ruta | Descripción | Respuesta |
 | --- | --- | --- | --- |
-| `GET` | `/` | Comprueba que la API esta activa | `200 OK` |
-| `GET` | `/book/` | Lista libros con paginacion | `200 OK` |
+| `GET` | `/` | Comprueba que la API está activa | `200 OK` |
+| `GET` | `/book/` | Lista libros con paginación | `200 OK` |
 | `POST` | `/book/` | Crea un libro | `201 Created` |
+| `GET` | `/author/` | Lista autores con paginación | `200 OK` |
+| `POST` | `/author/` | Crea un autor | `201 Created` |
 
-La paginacion de `GET /book/` acepta:
+Actualmente no existen rutas para obtener un libro por ID, actualizarlo o eliminarlo.
 
-- `skip`: registros que se omiten. Valor inicial `0`, minimo `0`.
-- `limit`: maximo de registros. Valor inicial `100`, entre `1` y `100`.
-
-Actualmente no existen rutas `GET /book/{id}`, `PUT`, `PATCH` ni `DELETE`.
-
-## Ejemplos de peticiones y respuestas
-
-### 1. Comprobar el estado de la API
-
-Peticion:
+### Comprobar el estado de la API
 
 ```bash
 curl http://127.0.0.1:8000/
@@ -479,132 +495,176 @@ Respuesta:
 }
 ```
 
-### 2. Listar libros
-
-Peticion:
+### Crear un autor
 
 ```bash
-curl "http://127.0.0.1:8000/book/?skip=0&limit=10"
+curl -X POST "http://127.0.0.1:8000/author/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Miguel de Cervantes",
+    "biography": "Autor de Don Quijote"
+  }'
 ```
 
-Si no hay registros, la respuesta es:
+Respuesta esperada:
 
 ```json
-[]
+{
+  "name": "Miguel de Cervantes",
+  "biography": "Autor de Don Quijote",
+  "id": 1
+}
 ```
 
-Cuando existen libros, la respuesta tiene este formato:
-
-```json
-[
-  {
-    "title": "Don Quijote",
-    "author": "Miguel de Cervantes",
-    "pages": 850,
-    "is_available": true,
-    "id": 1
-  }
-]
-```
-
-### 3. Crear un libro
-
-Peticion:
+### Crear un libro con autor
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/book/" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Don Quijote",
-    "author": "Miguel de Cervantes",
+    "author_id": 1,
     "pages": 850,
     "is_available": true
   }'
 ```
 
-Respuesta esperada, con codigo `201 Created`:
+`author_id` y `pages` son opcionales. Por ejemplo, también es válido:
+
+```json
+{
+  "title": "Libro sin paginar"
+}
+```
+
+Cuando el autor existe, la respuesta incluye la relación:
 
 ```json
 {
   "title": "Don Quijote",
-  "author": "Miguel de Cervantes",
+  "author_id": 1,
   "pages": 850,
   "is_available": true,
-  "id": 1
+  "id": 1,
+  "author": {
+    "name": "Miguel de Cervantes",
+    "biography": "Autor de Don Quijote",
+    "id": 1
+  }
 }
 ```
 
-El campo `is_available` es opcional porque tiene el valor `true` por defecto. `title` y `author` son obligatorios. `pages`, cuando se envia, debe ser mayor que cero.
+### Listar libros
 
-### 4. Validacion de datos
+```bash
+curl "http://127.0.0.1:8000/book/?skip=0&limit=10"
+```
 
-Por ejemplo, esta peticion no es valida porque `pages` no puede ser negativo:
+`skip` comienza en `0` y `limit` acepta valores entre `1` y `100`.
+
+### Listar autores
+
+```bash
+curl "http://127.0.0.1:8000/author/?skip=0&limit=10"
+```
+
+### Validación de datos
+
+Esta petición devuelve `422 Unprocessable Entity`, porque `pages` no puede ser negativo:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/book/" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "Libro de prueba",
-    "author": "Autor de prueba",
+    "title": "Libro inválido",
     "pages": -1
   }'
 ```
 
-FastAPI devuelve un error `422 Unprocessable Entity` generado por Pydantic.
+## Estado actual
 
-## Estado actual y siguientes pasos
+La versión actual permite:
 
-La version actual ya permite:
+- Cargar configuración desde `.env`.
+- Mantener el esquema de SQLite con Alembic.
+- Crear y consultar libros.
+- Crear y consultar autores.
+- Relacionar libros con autores mediante `author_id`.
+- Dejar `author_id`, `pages` y `biography` como campos opcionales.
+- Validar los datos con Pydantic.
+- Serializar el autor dentro de la respuesta del libro.
+- Consultar la API desde Swagger UI y ReDoc.
 
-- Cargar configuracion desde `.env`.
-- Crear automaticamente la tabla `book` al iniciar.
-- Abrir y cerrar sesiones SQLAlchemy por peticion.
-- Listar libros con `GET /book/`.
-- Crear libros con `POST /book/`.
-- Validar los datos recibidos con Pydantic.
-- Generar documentacion interactiva con Swagger y ReDoc.
-- Permitir peticiones desde un frontend mediante CORS.
+### Próximos pasos posibles
 
-Como siguientes pasos del proyecto se pueden implementar:
+- Añadir `GET /book/{book_id}`.
+- Completar `BookUpdate` y crear rutas `PUT` o `PATCH`.
+- Añadir `DELETE` para libros y autores.
+- Corregir y conectar el esquema `BookUpdate` con las rutas.
+- Añadir tests automatizados.
+- Restringir `allow_origins` a los dominios reales en producción.
 
-- Consultar un libro por identificador con `GET /book/{book_id}`.
-- Completar el esquema `BookUpdate` y anadir `PUT` o `PATCH`.
-- Anadir la eliminacion con `DELETE /book/{book_id}`.
-- Corregir los nombres `page` e `is_avaible` del esquema de actualizacion para que coincidan con `pages` e `is_available`.
-- Anadir tests automatizados para las rutas y el controlador.
-- Restringir `allow_origins` a los dominios reales del frontend en produccion.
-- Utilizar migraciones, por ejemplo Alembic, cuando cambie el modelo de datos.
-
-## Resolucion de problemas
+## Resolución de problemas
 
 ### `ModuleNotFoundError: No module named 'fastapi'`
 
-Activa el entorno virtual y vuelve a instalar las dependencias:
+Activa el entorno virtual e instala las dependencias:
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### El comando `uvicorn` no se encuentra
+### El comando `alembic` no se encuentra
 
-Comprueba que el entorno virtual esta activado. Tambien puedes arrancar el servidor mediante el interprete de Python:
+Comprueba que el entorno virtual está activado. También puedes utilizar:
 
 ```bash
-python -m uvicorn main:app --reload
+venv/bin/alembic upgrade head
 ```
+
+### `table book has no column named author_id`
+
+La base de datos no tiene aplicadas las migraciones actuales. Desde la raíz del proyecto ejecuta:
+
+```bash
+alembic upgrade head
+```
+
+No basta con ejecutar `create_all()`, porque no modifica tablas que ya existen.
+
+### `NOT NULL constraint failed: book.pages`
+
+La base de datos utiliza una revisión antigua en la que `pages` era obligatorio. Actualiza el esquema:
+
+```bash
+alembic upgrade head
+```
+
+La revisión `d4f2c8a9b1e0` permite guardar libros sin número de páginas.
 
 ### La API no muestra los libros
 
-Comprueba que estas utilizando el prefijo correcto: `/book/`, en singular. Tambien puedes inspeccionar el archivo `db.sqlite3` con una extension de VS Code para SQLite o con DB Browser for SQLite.
+Comprueba que utilizas el prefijo singular `/book/` y que estás consultando la misma base configurada en `.env`:
+
+```env
+DATABASE_URL="sqlite:///./db.sqlite3"
+```
 
 ### Reiniciar la base de datos
 
-Deten el servidor, elimina `db.sqlite3` y vuelve a arrancarlo:
+Detén el servidor y elimina la base local:
 
 ```bash
 rm db.sqlite3
+alembic upgrade head
 uvicorn main:app --reload
 ```
 
-La tabla `book` se creara de nuevo durante el inicio de FastAPI.
+En Windows puedes eliminar `db.sqlite3` desde el explorador o utilizar:
+
+```powershell
+Remove-Item db.sqlite3
+```
+
+Este procedimiento elimina los datos locales y debe utilizarse solo cuando quieras reconstruir la base desde cero.

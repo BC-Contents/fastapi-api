@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.config_variables import APP_TITLE, APP_VERSION, APP_DESCRIPTION
 from database.database import Base, engine
 from routes.routes import router as books_router
+from routes.author_routes import router as author_routes
 
 
 @asynccontextmanager
@@ -38,6 +39,8 @@ app.add_middleware(
 
 # Registrar el router de libros
 app.include_router(books_router)
+
+app.include_router(author_routes)
 
 
 @app.get("/", tags=["Health Check"])

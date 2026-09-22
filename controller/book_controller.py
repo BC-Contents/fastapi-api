@@ -22,7 +22,7 @@ def create_book(db:Session, book_data: BookCreate) -> Book:
     
     new_book = Book(
         title=book_data.title,
-        author=book_data.author,
+        author_id=book_data.author_id,
         pages=book_data.pages,
         is_available=book_data.is_available
     )

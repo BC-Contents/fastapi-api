@@ -1,5 +1,6 @@
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
+from schema.author_schema import AuthorResponse
 
 class BookBase(BaseModel):
     
@@ -11,12 +12,8 @@ class BookBase(BaseModel):
         examples=["Don Quijote"]
     )
     
-    author:str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="Author book",
-        examples=["Miguel de Cervantes"]
+    author_id:Optional[int] = Field(
+        default=None, description="ID of author"
     )
     
     pages: Optional[int] = Field(
@@ -38,7 +35,7 @@ class BookCreate(BookBase):
 class BookUpdate(BaseModel):
     
     title:Optional[str] = Field(None,min_length=1, max_length=150)
-    author:Optional[str] =Field(None,min_length=1,max_length=150)
+    author_id:Optional[int] = None
     page:Optional[str] = Field(None, gt=0)
     is_avaible:Optional[bool] = Field(None)
 
@@ -46,5 +43,6 @@ class BookUpdate(BaseModel):
 class BookResponse(BookBase):
     
     id:int = Field(...,description="PK database", examples=[1])
+    author: Optional[AuthorResponse] = None
     
     model_config = ConfigDict(from_attributes=True)

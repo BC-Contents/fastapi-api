@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from model.book_model import Book
 from schema.book_schema import BookCreate
+from model.genre_model import Genre
 
 
 def get_all(db:Session,skip:int = 0, limit: int = 100)->List[Book]:
@@ -26,6 +27,10 @@ def create_book(db:Session, book_data: BookCreate) -> Book:
         pages=book_data.pages,
         is_available=book_data.is_available
     )
+    
+    if book_data.genre_ids:
+        genres = db.query(Genre).filter(Genre.id.in_(book_data.genre_ids)).all()
+        new_book.genres = genres
     
     try:
         db.add(new_book)

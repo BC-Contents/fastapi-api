@@ -10,7 +10,7 @@ Este repositorio contiene una API REST didáctica para gestionar libros y autore
 2. [Requisitos previos](#requisitos-previos)
 3. [Instalación paso a paso](#instalación-paso-a-paso)
 4. [Migraciones con Alembic](#migraciones-con-alembic)
-5. [Tablas y relación entre modelos](#tablas-y-relación-entre-modelos)
+5. [Tablas y relación Many-to-Many (Libros y Géneros)](#tablas-y-relación-many-to-many-libros-y-géneros)
 6. [Arrancar el servidor](#arrancar-el-servidor)
 7. [Pruebas con Swagger UI](#pruebas-con-swagger-ui)
 8. [Endpoints y ejemplos](#endpoints-y-ejemplos)
@@ -40,19 +40,23 @@ fastapi-api/
 ├── model/
 │   ├── __init__.py
 │   ├── author_model.py             # Modelo ORM de authors
-│   └── book_model.py               # Modelo ORM de book
+│   ├── book_model.py               # Modelo ORM de book
+│   └── genre_model.py              # Modelo ORM de genres y tabla book_genre
 ├── schema/
 │   ├── __init__.py
-│   ├── author_schema.py             # Esquemas Pydantic de autores
-│   └── book_schema.py              # Esquemas Pydantic de libros
+│   ├── author_schema.py            # Esquemas Pydantic de autores
+│   ├── book_schema.py              # Esquemas Pydantic de libros
+│   └── genre_schema.py             # Esquemas Pydantic de géneros
 ├── controller/
 │   ├── __init__.py
-│   ├── author_controller.py         # Operaciones de autores
-│   └── book_controller.py           # Operaciones de libros
+│   ├── author_controller.py        # Operaciones de autores
+│   ├── book_controller.py          # Operaciones de libros
+│   └── genre_controller.py         # Operaciones de géneros
 ├── routes/
 │   ├── __init__.py
-│   ├── author_routes.py             # Rutas /author/
-│   └── routes.py                    # Rutas /book/
+│   ├── author_routes.py            # Rutas /author/
+│   ├── genre_routes.py             # Rutas /genre/
+│   └── routes.py                   # Rutas /book/
 ├── .env                            # Configuración local
 ├── .env.example                    # Plantilla de configuración
 ├── db.sqlite3                      # Base de datos SQLite local
@@ -213,10 +217,13 @@ Las revisiones del proyecto forman esta evolución:
 5. `9ba96e651b3f`: revisión de corrección del modelo de libros.
 6. `cf0f74d0ff4e`: revisión de corrección de los modelos.
 7. `d4f2c8a9b1e0`: permite que `book.pages` sea `NULL`.
+8. `fd36481dd164`: crea la tabla `genres` y la tabla intermedia `book_genre` (relación N:M).
+9. `92d5f0776a95`: ajuste en la relación de libros dentro de géneros.
+10. `a2dcb78be1bc`: sincronización final de la relación bidireccional.
 
-La revisión actual es `d4f2c8a9b1e0`.
+La revisión actual es `a2dcb78be1bc`.
 
-La última migración utiliza `batch_alter_table`, porque SQLite tiene limitaciones para modificar columnas mediante `ALTER TABLE` convencional.
+La migración `d4f2c8a9b1e0` utilizó `batch_alter_table`, porque SQLite tiene limitaciones para modificar columnas mediante `ALTER TABLE` convencional. La migración `fd36481dd164` incorporó la tabla de géneros e intermedia con claves foráneas en cascada.
 
 ### Aplicar las migraciones
 
@@ -237,7 +244,7 @@ alembic history --verbose
 La salida esperada de `alembic current` termina en:
 
 ```text
-d4f2c8a9b1e0 (head)
+a2dcb78be1bc (head)
 ```
 
 ### Crear una nueva migración
@@ -266,28 +273,18 @@ Para volver al estado inicial:
 alembic downgrade base
 ```
 
-## Tablas y relación entre modelos
+## Tablas y relación Many-to-Many (Libros y Géneros)
 
-Después de aplicar las migraciones, SQLite contiene dos tablas relacionadas:
+En esta rama (`relation-many-to-many`) se implementa la relación de **muchos a muchos (N:M)** entre **libros** (`book`) y **géneros literarios** (`genres`):
 
-- `authors`: almacena los autores.
-- `book`: almacena los libros.
-
-La relación es **uno a muchos (1:N)**:
-
-- Un autor puede tener muchos libros.
-- Un libro puede tener cero o un autor.
-- `book.author_id` apunta a `authors.id`.
-- La relación utiliza `ON DELETE SET NULL`: si se elimina el autor, el libro se conserva y su `author_id` queda vacío.
+- Un libro puede pertenecer a varios géneros (por ejemplo: Novela de aventuras, Ficción, Clásico).
+- Un género literario puede agrupar múltiples libros.
+- La asociación se materializa mediante la tabla asociativa intermedia **`book_genre`**.
 
 ```mermaid
 erDiagram
-    AUTHORS ||--o{ BOOK : escribe
-    AUTHORS {
-        int id PK
-        string name
-        string biography
-    }
+    BOOK ||--o{ BOOK_GENRE : "tiene"
+    GENRES ||--o{ BOOK_GENRE : "agrupa"
     BOOK {
         int id PK
         string title
@@ -295,143 +292,214 @@ erDiagram
         boolean is_available
         int author_id FK
     }
+    GENRES {
+        int id PK
+        string name
+    }
+    BOOK_GENRE {
+        int book_id PK,FK
+        int genres_id PK,FK
+    }
 ```
 
-### Paso 1: Crear la tabla `book`
+### Paso 1: Crear la tabla intermedia y el modelo `Genre`
 
-La primera migración crea la tabla de libros:
+Para modelar la relación N:M en SQLAlchemy, se crea el archivo `model/genre_model.py` definiendo la tabla asociativa `book_genres` mediante un objeto `Table` y el modelo declarativo `Genre`:
 
 ```python
-op.create_table(
-    "book",
-    sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column("title", sa.String(length=150), nullable=False),
-    sa.Column("pages", sa.Integer(), nullable=False),
-    sa.Column("is_available", sa.Boolean(), nullable=False, default=True),
-    sa.PrimaryKeyConstraint("id")
+from sqlalchemy import Column, Integer, String, ForeignKey, Table
+from sqlalchemy.orm import relationship
+from database.database import Base
+
+# Tabla asociativa intermedia
+book_genres = Table(
+    "book_genre",
+    Base.metadata,
+    Column("book_id", Integer, ForeignKey("book.id", ondelete="CASCADE"), primary_key=True),
+    Column("genres_id", Integer, ForeignKey("genres.id", ondelete="CASCADE"), primary_key=True),
 )
-```
 
-Más adelante, la migración `d4f2c8a9b1e0` cambia `pages` para que sea opcional. El estado final es equivalente a:
-
-```python
-pages = Column(Integer, nullable=True)
-```
-
-La columna sigue validando en Pydantic que, cuando se envía un número, sea mayor que cero.
-
-### Paso 2: Crear la tabla `authors`
-
-La tabla de autores tiene estos campos:
-
-| Campo | Tipo | Obligatorio | Descripción |
-| --- | --- | --- | --- |
-| `id` | `Integer` | Sí | Clave primaria autoincremental |
-| `name` | `String(100)` | Sí | Nombre del autor |
-| `biography` | `String(500)` | No | Biografía del autor |
-
-Su modelo ORM es:
-
-```python
-class Author(Base):
-    __tablename__ = "authors"
+class Genre(Base):
+    __tablename__ = "genres"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), nullable=False, index=True)
-    biography = Column(String(500), nullable=True)
 
-    books = relationship(
-        "Book",
-        back_populates="author",
-        cascade="all, delete-orphan"
-    )
+    # Relación muchos a muchos con Book a través de la tabla asociativa
+    books = relationship("Book", secondary=book_genres, back_populates="genres")
 ```
 
-### Paso 3: Añadir la relación a `Book`
+Detalles de la implementación:
+- `book_genres` se define mediante `Table(...)` sin requerir una clase ORM propia, ya que únicamente guarda las claves foráneas de asociación.
+- **Clave primaria compuesta:** `book_id` y `genres_id` actúan conjuntamente como clave primaria (`primary_key=True`), impidiendo registrar la misma relación por duplicado.
+- **Eliminación en cascada:** `ondelete="CASCADE"` asegura que si se elimina un libro o un género, sus filas asociadas en `book_genre` se eliminen automáticamente.
 
-El modelo de libros contiene la clave foránea y la relación ORM:
+### Paso 2: Configurar la relación Many-to-Many en `Book` con `secondary`
+
+En `model/book_model.py` se importa la tabla intermedia y se conecta la relación inversa hacia `Genre`:
 
 ```python
+from model.genre_model import book_genres
+
 class Book(Base):
     __tablename__ = "book"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    title = Column(String(150), nullable=False, index=True)
-    pages = Column(Integer, nullable=True)
-    is_available = Column(Boolean, default=True, nullable=False)
-
-    author_id = Column(
-        Integer,
-        ForeignKey("authors.id", ondelete="SET NULL"),
-        nullable=True
-    )
+    # ... columnas id, title, pages, is_available, author_id ...
 
     author = relationship("Author", back_populates="books")
+    genres = relationship("Genre", secondary=book_genres, back_populates="books")
 ```
 
-`ForeignKey` crea la relación física en SQLite. `relationship()` permite navegar desde Python mediante `book.author` y `author.books`.
+El parámetro `secondary=book_genres` instruye a SQLAlchemy a resolver la navegación bidireccional (`book.genres` y `genre.books`) a través de la tabla asociativa de forma automática.
 
-### Paso 4: Definir los esquemas Pydantic
+### Paso 3: Generar y aplicar las migraciones con Alembic
 
-Los esquemas separan el JSON de la estructura interna de SQLAlchemy:
+Con los modelos actualizados, se genera la migración para crear `genres` y `book_genre`:
 
-```python
-class BookBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=150)
-    author_id: Optional[int] = None
-    pages: Optional[int] = Field(None, gt=0)
-    is_available: bool = Field(default=True)
+```bash
+alembic revision --autogenerate -m "add genres and book_genres many to many table"
 ```
 
-En un libro:
-
-- `title` es obligatorio.
-- `author_id` es opcional.
-- `pages` es opcional; si se envía, debe ser mayor que cero.
-- `is_available` es opcional y por defecto vale `true`.
-
-La respuesta incluye el autor anidado cuando existe:
+Esto generó la revisión `fd36481dd164`, que ejecuta en SQLite:
 
 ```python
-class BookResponse(BookBase):
-    id: int
+def upgrade() -> None:
+    op.create_table('genres',
+        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column('name', sa.String(length=100), nullable=False),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_genres_id'), 'genres', ['id'], unique=False)
+    op.create_index(op.f('ix_genres_name'), 'genres', ['name'], unique=False)
+    op.create_table('book_genre',
+        sa.Column('book_id', sa.Integer(), nullable=False),
+        sa.Column('genres_id', sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(['book_id'], ['book.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['genres_id'], ['genres.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('book_id', 'genres_id')
+    )
+```
+
+Para aplicar los cambios en la base de datos:
+
+```bash
+alembic upgrade head
+```
+
+### Paso 4: Definir los esquemas Pydantic y resolver dependencias circulares
+
+Se crean los esquemas para géneros en `schema/genre_schema.py`:
+
+```python
+from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+class GenreBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, examples=["Novela de aventuras"])
+
+class GenreCreate(GenreBase):
+    pass
+
+class GenreUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+
+class GenreResponse(GenreBase):
+    id: int = Field(..., description="Primary Key")
+    model_config = ConfigDict(from_attributes=True)
+
+# Importación diferida para resolver la dependencia circular
+from schema.book_schema import BookSimpleResponse
+
+class GenreDetailResponse(GenreResponse):
+    books: List[BookSimpleResponse] = Field(default=[], description="List")
+```
+
+En `schema/book_schema.py` se actualizan los esquemas para admitir géneros y evitar ciclos infinitos en JSON:
+
+```python
+# Esquema de creación: recibe una lista opcional de IDs de géneros
+class BookCreate(BookBase):
+    genre_ids: Optional[List[int]] = Field(
+        default=[],
+        description="List id of genres",
+        examples=[[1, 2]]
+    )
+
+# Esquema simple sin relaciones anidadas (usado dentro de GenreDetailResponse)
+class BookSimpleResponse(BookBase):
+    id: int = Field(..., description="PK database", examples=[1])
+    model_config = ConfigDict(from_attributes=True)
+
+# Importación diferida para resolver la dependencia circular
+from schema.genre_schema import GenreResponse
+
+# Esquema completo con autor y géneros anidados
+class BookResponse(BookSimpleResponse):
     author: Optional[AuthorResponse] = None
-
+    genres: List[GenreResponse] = []
     model_config = ConfigDict(from_attributes=True)
 ```
 
-Para los autores:
+> [!IMPORTANT]
+> **Resolución de la dependencia circular (Circular Import):**
+> `BookResponse` necesita el esquema `GenreResponse`, mientras que `GenreDetailResponse` necesita el esquema `BookSimpleResponse`.
+> Si ambos módulos importaran en la cabecera del archivo, Python fallaría con:
+> `ImportError: cannot import name 'BookSimpleResponse' from partially initialized module 'schema.book_schema'`.
+> Para resolverlo:
+> 1. En `genre_schema.py`, `GenreResponse` se declara **antes** de importar `BookSimpleResponse`.
+> 2. En `book_schema.py`, `BookSimpleResponse` se declara **antes** de importar `GenreResponse`.
+> 3. En `schema/__init__.py` se exportan todos los esquemas (`BookSimpleResponse`, `GenreResponse`, `GenreDetailResponse`, etc.) de forma coordinada.
+> De este modo, ambos módulos pueden cargarse sin dependencias circulares y sin bucles infinitos en la serialización JSON.
+
+### Paso 5: Implementar los controladores para la relación N:M
+
+En `controller/genre_controller.py`:
+- `get_all()`: utiliza `.options(joinedload(Genre.books))` para que SQLAlchemy realice una consulta `JOIN` y cargue los libros relacionados de una sola vez, optimizando el rendimiento (evitando consultas N+1).
+- `create_genre()`: comprueba si el nombre ya existe para evitar duplicados antes de insertar.
 
 ```python
-class AuthorBase(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    biography: Optional[str] = Field(None, max_length=500)
+def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[Genre]:
+    return (
+        db.query(Genre)
+        .options(joinedload(Genre.books))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 ```
 
-### Paso 5: Controladores y rutas
-
-Los controladores contienen las operaciones de persistencia. Por ejemplo, crear un libro consiste en construir el objeto, añadirlo a la sesión, confirmar la transacción y refrescarlo:
+En `controller/book_controller.py`:
+- `create_book()`: al recibir `genre_ids`, consulta los géneros existentes en la base de datos y los vincula directamente a `new_book.genres`:
 
 ```python
-new_book = Book(
-    title=book_data.title,
-    author_id=book_data.author_id,
-    pages=book_data.pages,
-    is_available=book_data.is_available
-)
-
-db.add(new_book)
-db.commit()
-db.refresh(new_book)
+if book_data.genre_ids:
+    genres = db.query(Genre).filter(Genre.id.in_(book_data.genre_ids)).all()
+    new_book.genres = genres
 ```
 
-Si ocurre un error SQLAlchemy, el controlador hace `rollback()` y devuelve un error HTTP 500.
+SQLAlchemy se encarga automáticamente de insertar los registros correspondientes en la tabla intermedia `book_genre`.
 
-Las rutas disponibles usan estos prefijos:
+### Paso 6: Crear las rutas HTTP de géneros y registrarlas en `main.py`
+
+En `routes/genre_routes.py` se exponen los endpoints correspondientes:
 
 ```python
-book_router = APIRouter(prefix="/book", tags=["Book"])
-author_router = APIRouter(prefix="/author", tags=["Author"])
+router = APIRouter(prefix="/genre", tags=["Genre"])
+
+@router.get("/", response_model=List[GenreDetailResponse], summary="Read a genres")
+def read_genre(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=100), db: Session = Depends(get_db)):
+    return controller.get_all(db=db, skip=skip, limit=limit)
+
+@router.post("/", response_model=GenreResponse, status_code=status.HTTP_201_CREATED, summary="Create a new genre")
+def create_new_genre(genre_data: GenreCreate, db: Session = Depends(get_db)):
+    return controller.create_genre(db=db, genre_data=genre_data)
+```
+
+Por último, el router se conecta en `main.py`:
+
+```python
+from routes.genre_routes import router as genre_routes
+
+app.include_router(genre_routes)
 ```
 
 ## Arrancar el servidor
@@ -471,10 +539,12 @@ Direcciones disponibles:
 | Método | Ruta | Descripción | Respuesta |
 | --- | --- | --- | --- |
 | `GET` | `/` | Comprueba que la API está activa | `200 OK` |
-| `GET` | `/book/` | Lista libros con paginación | `200 OK` |
-| `POST` | `/book/` | Crea un libro | `201 Created` |
+| `GET` | `/book/` | Lista libros con autor y lista de géneros | `200 OK` |
+| `POST` | `/book/` | Crea un libro (admite `author_id` y `genre_ids`) | `201 Created` |
 | `GET` | `/author/` | Lista autores con paginación | `200 OK` |
 | `POST` | `/author/` | Crea un autor | `201 Created` |
+| `GET` | `/genre/` | Lista géneros con libros vinculados | `200 OK` |
+| `POST` | `/genre/` | Crea un nuevo género | `201 Created` |
 
 Actualmente no existen rutas para obtener un libro por ID, actualizarlo o eliminarlo.
 
@@ -516,7 +586,26 @@ Respuesta esperada:
 }
 ```
 
-### Crear un libro con autor
+### Crear un género
+
+```bash
+curl -X POST "http://127.0.0.1:8000/genre/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Novela de aventuras"
+  }'
+```
+
+Respuesta esperada:
+
+```json
+{
+  "name": "Novela de aventuras",
+  "id": 1
+}
+```
+
+### Crear un libro con autor y géneros
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/book/" \
@@ -524,12 +613,13 @@ curl -X POST "http://127.0.0.1:8000/book/" \
   -d '{
     "title": "Don Quijote",
     "author_id": 1,
+    "genre_ids": [1],
     "pages": 850,
     "is_available": true
   }'
 ```
 
-`author_id` y `pages` son opcionales. Por ejemplo, también es válido:
+`author_id`, `genre_ids` y `pages` son opcionales. Por ejemplo, también es válido:
 
 ```json
 {
@@ -537,7 +627,7 @@ curl -X POST "http://127.0.0.1:8000/book/" \
 }
 ```
 
-Cuando el autor existe, la respuesta incluye la relación:
+Cuando el autor y los géneros existen, la respuesta incluye las relaciones completas:
 
 ```json
 {
@@ -550,7 +640,13 @@ Cuando el autor existe, la respuesta incluye la relación:
     "name": "Miguel de Cervantes",
     "biography": "Autor de Don Quijote",
     "id": 1
-  }
+  },
+  "genres": [
+    {
+      "name": "Novela de aventuras",
+      "id": 1
+    }
+  ]
 }
 ```
 
@@ -566,6 +662,32 @@ curl "http://127.0.0.1:8000/book/?skip=0&limit=10"
 
 ```bash
 curl "http://127.0.0.1:8000/author/?skip=0&limit=10"
+```
+
+### Listar géneros (con libros asociados)
+
+```bash
+curl "http://127.0.0.1:8000/genre/?skip=0&limit=10"
+```
+
+Respuesta esperada (muestra los libros asociados a cada género):
+
+```json
+[
+  {
+    "name": "Novela de aventuras",
+    "id": 1,
+    "books": [
+      {
+        "title": "Don Quijote",
+        "author_id": 1,
+        "pages": 850,
+        "is_available": true,
+        "id": 1
+      }
+    ]
+  }
+]
 ```
 
 ### Validación de datos
@@ -587,13 +709,14 @@ La versión actual permite:
 
 - Cargar configuración desde `.env`.
 - Mantener el esquema de SQLite con Alembic.
-- Crear y consultar libros.
 - Crear y consultar autores.
-- Relacionar libros con autores mediante `author_id`.
-- Dejar `author_id`, `pages` y `biography` como campos opcionales.
-- Validar los datos con Pydantic.
-- Serializar el autor dentro de la respuesta del libro.
-- Consultar la API desde Swagger UI y ReDoc.
+- Crear y consultar géneros literarios.
+- Crear y consultar libros asociándolos a un autor (relación 1:N) y a múltiples géneros (relación N:M).
+- Dejar `author_id`, `genre_ids`, `pages` y `biography` como campos opcionales.
+- Validar los datos de entrada con Pydantic.
+- Serializar el autor y los géneros dentro de la respuesta del libro (`BookResponse`), y los libros dentro de cada género (`GenreDetailResponse`) sin bucles circulares.
+- Cargar eficientemente relaciones Many-to-Many con `joinedload`.
+- Consultar la API interactiva desde Swagger UI y ReDoc.
 
 ### Próximos pasos posibles
 

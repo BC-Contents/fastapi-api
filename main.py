@@ -6,6 +6,7 @@ from config.config_variables import APP_TITLE, APP_VERSION, APP_DESCRIPTION
 from database.database import Base, engine
 from routes.routes import router as books_router
 from routes.author_routes import router as author_routes
+from routes.genre_routes import router as genre_routes
 
 
 @asynccontextmanager
@@ -41,6 +42,8 @@ app.add_middleware(
 app.include_router(books_router)
 
 app.include_router(author_routes)
+app.include_router(genre_routes)
+
 
 
 @app.get("/", tags=["Health Check"])

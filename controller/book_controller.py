@@ -16,7 +16,6 @@ def get_all(db:Session,skip:int = 0, limit: int = 100)->List[Book]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error in creating book {str(error)}"
         )
-    
 
 
 def create_book(db:Session, book_data: BookCreate) -> Book:

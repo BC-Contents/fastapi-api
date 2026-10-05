@@ -1,7 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from schema.author_schema import AuthorResponse
-from schema.genre_schema import GenreResponse
 
 class BookBase(BaseModel):
     
@@ -54,6 +53,8 @@ class BookSimpleResponse(BookBase):
     id:int = Field(...,description="PK database", examples=[1])
     
     model_config = ConfigDict(from_attributes=True)
+
+from schema.genre_schema import GenreResponse
 
 class BookResponse(BookSimpleResponse):
   
